@@ -3,11 +3,28 @@
 # archives. Does not touch the NVIDIA driver or Ubuntu's /usr/bin/nvcc.
 set -euo pipefail
 
-PREFIX="${1:-${GDSLAB_CUDA_PREFIX:-${CUDA_HOME:-/data/cuda-13.0}}}"
+# CUDA_HOME is a compiler location, not an install destination.
+PREFIX="${1:-${GDSLAB_CUDA_PREFIX:-/data/cuda-13.0}}"
 RELEASE="${CUDA_REDIST_RELEASE:-13.0.2}"
 BASE="https://developer.download.nvidia.com/compute/cuda/redist"
 # Keep the download cache off any filesystem under measurement.
 WORKDIR="${CUDA_REDIST_WORKDIR:-${XDG_CACHE_HOME:-$HOME/.cache}/gds-lab/cuda-redist-$RELEASE}"
+
+resolved="$(readlink -f "$PREFIX" 2>/dev/null || printf '%s' "$PREFIX")"
+case "$resolved" in
+  /usr|/usr/*)
+    echo "refusing to install into system prefix: $PREFIX" >&2
+    echo "pass a user-writable path, e.g. $0 /data/cuda-13.0" >&2
+    exit 2
+    ;;
+esac
+if [[ -x "$PREFIX/bin/nvcc" ]]; then
+  if [[ ! -f "$PREFIX/version.txt" ]] || ! grep -qx "CUDA Version $RELEASE" "$PREFIX/version.txt"; then
+    echo "refusing to overlay existing nvcc at $PREFIX/bin/nvcc" >&2
+    echo "it is not the CUDA $RELEASE redist this script installs." >&2
+    exit 2
+  fi
+fi
 
 mkdir -p "$PREFIX" "$WORKDIR"
 
