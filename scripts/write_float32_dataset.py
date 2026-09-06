@@ -16,13 +16,17 @@ import sys
 import numpy as np
 
 CHUNK_BYTES = 16 * 1024 * 1024
-GOLDEN = np.uint32(2654435761)
+GOLDEN = np.uint64(0x9E3779B97F4A7C15)
 
 
 def fill_words(index0: int, nwords: int) -> np.ndarray:
-    idx = np.arange(index0, index0 + nwords, dtype=np.uint32)
+    # 64-bit counter and mix. A uint32 word index overflows at 16 GiB, and a
+    # dataset larger than RAM is exactly what the page-cache rules ask for on a
+    # large-memory host. Mixing in 64 bits also keeps the pattern aperiodic, so
+    # a wrong-offset read cannot alias onto the same values.
+    idx = np.arange(index0, index0 + nwords, dtype=np.uint64)
     mixed = idx * GOLDEN
-    frac = (mixed >> 8).astype(np.float32) * np.float32(2.0**-24)
+    frac = (mixed >> np.uint64(40)).astype(np.float32) * np.float32(2.0**-24)
     return np.float32(1.0) + frac
 
 
