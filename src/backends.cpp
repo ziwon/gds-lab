@@ -132,7 +132,8 @@ double seconds_between(std::chrono::steady_clock::time_point start,
 BenchmarkResult finish(const std::string& label, const BenchmarkOptions& options,
                        std::chrono::steady_clock::time_point t0,
                        std::chrono::steady_clock::time_point t1,
-                       std::chrono::steady_clock::time_point t2) {
+                       std::chrono::steady_clock::time_point t2,
+                       const void* device) {
     BenchmarkResult result;
     result.label = label;
     result.bytes = options.bytes;
@@ -140,6 +141,8 @@ BenchmarkResult finish(const std::string& label, const BenchmarkOptions& options
     result.read_seconds = seconds_between(t0, t1);
     result.copy_seconds = seconds_between(t1, t2);
     result.split_valid = true;
+    result.checksum = device_checksum(device, options.bytes);
+    result.checksum_valid = true;
     return result;
 }
 }  // namespace
@@ -160,7 +163,7 @@ BenchmarkResult run_pageable(const BenchmarkOptions& options) {
                "cudaMemcpy");
     const auto t2 = std::chrono::steady_clock::now();
 
-    return finish("pageable-sync", options, t0, t1, t2);
+    return finish("pageable-sync", options, t0, t1, t2, device.ptr);
 }
 
 BenchmarkResult run_pinned(const BenchmarkOptions& options) {
@@ -177,7 +180,7 @@ BenchmarkResult run_pinned(const BenchmarkOptions& options) {
     cuda_check(cudaStreamSynchronize(stream.stream), "cudaStreamSynchronize");
     const auto t2 = std::chrono::steady_clock::now();
 
-    return finish("pinned-async", options, t0, t1, t2);
+    return finish("pinned-async", options, t0, t1, t2, device.ptr);
 }
 
 BenchmarkResult run_direct(const BenchmarkOptions& options) {
@@ -198,7 +201,7 @@ BenchmarkResult run_direct(const BenchmarkOptions& options) {
     cuda_check(cudaStreamSynchronize(stream.stream), "cudaStreamSynchronize");
     const auto t2 = std::chrono::steady_clock::now();
 
-    return finish("odirect-pinned-async", options, t0, t1, t2);
+    return finish("odirect-pinned-async", options, t0, t1, t2, device.ptr);
 }
 
 #if !GDSLAB_HAS_CUFILE

@@ -81,6 +81,18 @@ std::size_t pread_exact(int fd, void* buffer, std::size_t bytes, off_t offset) {
 }
 }  // namespace
 
+std::uint64_t device_checksum(const void* device, std::size_t bytes) {
+    if (bytes == 0) return 0;
+    DeviceScalar accumulator;
+    touch_kernel<<<grid_for(bytes), kThreads>>>(
+        static_cast<const unsigned char*>(device), bytes, accumulator.ptr);
+    cuda_check(cudaGetLastError(), "touch_kernel launch (checksum)");
+    unsigned long long value = 0;
+    cuda_check(cudaMemcpy(&value, accumulator.ptr, sizeof(value), cudaMemcpyDeviceToHost),
+               "cudaMemcpy(checksum)");
+    return static_cast<std::uint64_t>(value);
+}
+
 BenchmarkResult run_overlap(const BenchmarkOptions& options) {
     const std::size_t bytes = options.bytes;
     const std::size_t chunk_bytes = options.chunk_bytes;

@@ -101,8 +101,12 @@ BenchmarkResult run_cufile(const BenchmarkOptions& options) {
         throw std::runtime_error("cuFileRead returned fewer bytes than requested");
     }
 
-    const double seconds = std::chrono::duration<double>(end - start).count();
-    const char* label = env_true("CUFILE_FORCE_COMPAT_MODE") ? "cufile-forced-compat"
-                                                             : "cufile-auto-unverified-path";
-    return {label, options.bytes, seconds};
+    BenchmarkResult result;
+    result.label = env_true("CUFILE_FORCE_COMPAT_MODE") ? "cufile-forced-compat"
+                                                        : "cufile-auto-unverified-path";
+    result.bytes = options.bytes;
+    result.seconds = std::chrono::duration<double>(end - start).count();
+    result.checksum = device_checksum(device.ptr, options.bytes);
+    result.checksum_valid = true;
+    return result;
 }

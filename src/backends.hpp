@@ -22,6 +22,9 @@ struct BenchmarkResult {
     double read_seconds = 0.0;
     double copy_seconds = 0.0;
     bool split_valid = false;
+    // Sum of every byte in the region, computed on the GPU after the timed
+    // section. Identical across backends, access patterns and worker counts
+    // when the transfer is correct.
     std::uint64_t checksum = 0;
     bool checksum_valid = false;
 };
@@ -31,5 +34,9 @@ BenchmarkResult run_pinned(const BenchmarkOptions& options);
 BenchmarkResult run_direct(const BenchmarkOptions& options);
 BenchmarkResult run_overlap(const BenchmarkOptions& options);
 BenchmarkResult run_cufile(const BenchmarkOptions& options);
+
+// Sums bytes of a device buffer. Shared so every backend reports a checksum
+// computed the same way.
+std::uint64_t device_checksum(const void* device, std::size_t bytes);
 
 bool cufile_compiled();
