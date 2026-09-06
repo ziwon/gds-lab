@@ -57,7 +57,7 @@ gdslab_find_cuda() {
     }
 }
 
-_gdslab_found=$(gdslab_find_cuda)
+_gdslab_found=$(gdslab_find_cuda) || true
 case "$_gdslab_found" in
     ok\ *)
         CUDA_HOME=${_gdslab_found#ok }
