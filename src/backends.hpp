@@ -4,6 +4,14 @@
 #include <cstdint>
 #include <string>
 
+// One knob set for every backend. Experiments vary exactly one of these at a
+// time, so they live together rather than as per-function parameters.
+struct BenchmarkOptions {
+    std::string path;
+    std::size_t bytes = 0;
+    std::size_t chunk_bytes = 64ULL * 1024ULL * 1024ULL;
+};
+
 struct BenchmarkResult {
     std::string label;
     std::size_t bytes = 0;
@@ -12,10 +20,10 @@ struct BenchmarkResult {
     bool checksum_valid = false;
 };
 
-BenchmarkResult run_pageable(const std::string& path, std::size_t bytes);
-BenchmarkResult run_pinned(const std::string& path, std::size_t bytes);
-BenchmarkResult run_direct(const std::string& path, std::size_t bytes);
-BenchmarkResult run_overlap(const std::string& path, std::size_t bytes, std::size_t chunk_bytes);
-BenchmarkResult run_cufile(const std::string& path, std::size_t bytes);
+BenchmarkResult run_pageable(const BenchmarkOptions& options);
+BenchmarkResult run_pinned(const BenchmarkOptions& options);
+BenchmarkResult run_direct(const BenchmarkOptions& options);
+BenchmarkResult run_overlap(const BenchmarkOptions& options);
+BenchmarkResult run_cufile(const BenchmarkOptions& options);
 
 bool cufile_compiled();

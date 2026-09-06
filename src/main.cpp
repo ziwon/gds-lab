@@ -61,13 +61,21 @@ bool env_true(const char* name) {
     std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     return s == "1" || s == "true" || s == "yes" || s == "on";
 }
+
+BenchmarkResult dispatch(const std::string& backend, const BenchmarkOptions& options) {
+    if (backend == "pageable") return run_pageable(options);
+    if (backend == "pinned") return run_pinned(options);
+    if (backend == "direct") return run_direct(options);
+    if (backend == "overlap") return run_overlap(options);
+    if (backend == "cufile") return run_cufile(options);
+    throw std::invalid_argument("unknown backend: " + backend);
+}
 }  // namespace
 
 int main(int argc, char** argv) {
     std::string backend;
-    std::string file;
-    std::size_t bytes = 1ULL * 1024ULL * 1024ULL * 1024ULL;
-    std::size_t chunk_bytes = 64ULL * 1024ULL * 1024ULL;
+    BenchmarkOptions options;
+    options.bytes = 1ULL * 1024ULL * 1024ULL * 1024ULL;
     int iterations = 1;
 
     try {
@@ -79,21 +87,21 @@ int main(int argc, char** argv) {
             };
 
             if (arg == "--backend") backend = require_value("--backend");
-            else if (arg == "--file") file = require_value("--file");
-            else if (arg == "--bytes") bytes = parse_bytes(require_value("--bytes"));
-            else if (arg == "--chunk-bytes") chunk_bytes = parse_bytes(require_value("--chunk-bytes"));
+            else if (arg == "--file") options.path = require_value("--file");
+            else if (arg == "--bytes") options.bytes = parse_bytes(require_value("--bytes"));
+            else if (arg == "--chunk-bytes") options.chunk_bytes = parse_bytes(require_value("--chunk-bytes"));
             else if (arg == "--iterations") iterations = std::stoi(require_value("--iterations"));
             else if (arg == "--help" || arg == "-h") { usage(argv[0]); return 0; }
             else throw std::invalid_argument("unknown argument: " + arg);
         }
 
-        if (backend.empty() || file.empty()) {
+        if (backend.empty() || options.path.empty()) {
             usage(argv[0]);
             return 2;
         }
         if (iterations < 1) throw std::invalid_argument("--iterations must be >= 1");
-        if (bytes == 0) throw std::invalid_argument("--bytes must be > 0");
-        if (chunk_bytes == 0) throw std::invalid_argument("--chunk-bytes must be > 0");
+        if (options.bytes == 0) throw std::invalid_argument("--bytes must be > 0");
+        if (options.chunk_bytes == 0) throw std::invalid_argument("--chunk-bytes must be > 0");
 
         std::cout << "cufile_compiled=" << (cufile_compiled() ? "yes" : "no") << '\n';
         if (backend == "cufile") {
@@ -102,13 +110,7 @@ int main(int argc, char** argv) {
         }
 
         for (int iteration = 1; iteration <= iterations; ++iteration) {
-            BenchmarkResult result;
-            if (backend == "pageable") result = run_pageable(file, bytes);
-            else if (backend == "pinned") result = run_pinned(file, bytes);
-            else if (backend == "direct") result = run_direct(file, bytes);
-            else if (backend == "overlap") result = run_overlap(file, bytes, chunk_bytes);
-            else if (backend == "cufile") result = run_cufile(file, bytes);
-            else throw std::invalid_argument("unknown backend: " + backend);
+            const BenchmarkResult result = dispatch(backend, options);
 
             const double gbps = static_cast<double>(result.bytes) / result.seconds / 1.0e9;
             std::cout << std::fixed << std::setprecision(4)

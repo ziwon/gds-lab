@@ -26,6 +26,50 @@ void cufile_check(CUfileError_t status, const char* op) {
     }
 }
 
+struct DriverGuard {
+    bool open = false;
+    DriverGuard() {
+        cufile_check(cuFileDriverOpen(), "cuFileDriverOpen");
+        open = true;
+    }
+    ~DriverGuard() { if (open) cuFileDriverClose(); }
+    DriverGuard(const DriverGuard&) = delete;
+    DriverGuard& operator=(const DriverGuard&) = delete;
+};
+
+struct FdGuard {
+    int fd = -1;
+    explicit FdGuard(int value) : fd(value) {}
+    ~FdGuard() { if (fd >= 0) ::close(fd); }
+    FdGuard(const FdGuard&) = delete;
+    FdGuard& operator=(const FdGuard&) = delete;
+};
+
+struct HandleGuard {
+    CUfileHandle_t handle{};
+    bool registered = false;
+    explicit HandleGuard(int fd) {
+        CUfileDescr_t descriptor{};
+        descriptor.handle.fd = fd;
+        descriptor.type = CU_FILE_HANDLE_TYPE_OPAQUE_FD;
+        cufile_check(cuFileHandleRegister(&handle, &descriptor), "cuFileHandleRegister");
+        registered = true;
+    }
+    ~HandleGuard() { if (registered) cuFileHandleDeregister(handle); }
+    HandleGuard(const HandleGuard&) = delete;
+    HandleGuard& operator=(const HandleGuard&) = delete;
+};
+
+struct DeviceBuffer {
+    void* ptr = nullptr;
+    explicit DeviceBuffer(std::size_t bytes) {
+        cuda_check(cudaMalloc(&ptr, bytes), "cudaMalloc");
+    }
+    ~DeviceBuffer() { if (ptr) cudaFree(ptr); }
+    DeviceBuffer(const DeviceBuffer&) = delete;
+    DeviceBuffer& operator=(const DeviceBuffer&) = delete;
+};
+
 bool env_true(const char* name) {
     const char* value = std::getenv(name);
     if (!value) return false;
@@ -34,48 +78,31 @@ bool env_true(const char* name) {
 }
 }  // namespace
 
-BenchmarkResult run_cufile(const std::string& path, std::size_t bytes) {
-    cufile_check(cuFileDriverOpen(), "cuFileDriverOpen");
+BenchmarkResult run_cufile(const BenchmarkOptions& options) {
+    DriverGuard driver;
 
-    const int fd = ::open(path.c_str(), O_RDONLY | O_DIRECT);
-    if (fd < 0) {
-        cuFileDriverClose();
+    const int raw_fd = ::open(options.path.c_str(), O_RDONLY | O_DIRECT);
+    if (raw_fd < 0) {
         throw std::runtime_error(std::string("SKIPPED: open(O_DIRECT): ") + std::strerror(errno));
     }
-
-    CUfileDescr_t descriptor{};
-    descriptor.handle.fd = fd;
-    descriptor.type = CU_FILE_HANDLE_TYPE_OPAQUE_FD;
-    CUfileHandle_t handle{};
-
-    CUfileError_t status = cuFileHandleRegister(&handle, &descriptor);
-    if (status.err != CU_FILE_SUCCESS) {
-        ::close(fd);
-        cuFileDriverClose();
-        cufile_check(status, "cuFileHandleRegister");
-    }
-
-    void* device = nullptr;
-    cuda_check(cudaMalloc(&device, bytes), "cudaMalloc");
+    FdGuard fd(raw_fd);
+    HandleGuard handle(fd.fd);
+    DeviceBuffer device(options.bytes);
 
     const auto start = std::chrono::steady_clock::now();
-    const ssize_t n = cuFileRead(handle, device, bytes, 0, 0);
+    const ssize_t n = cuFileRead(handle.handle, device.ptr, options.bytes, 0, 0);
     cuda_check(cudaDeviceSynchronize(), "cudaDeviceSynchronize");
     const auto end = std::chrono::steady_clock::now();
-
-    cudaFree(device);
-    cuFileHandleDeregister(handle);
-    ::close(fd);
-    cuFileDriverClose();
 
     if (n < 0) {
         throw std::runtime_error("SKIPPED: cuFileRead failed with code " + std::to_string(n));
     }
-    if (static_cast<std::size_t>(n) != bytes) {
+    if (static_cast<std::size_t>(n) != options.bytes) {
         throw std::runtime_error("cuFileRead returned fewer bytes than requested");
     }
 
     const double seconds = std::chrono::duration<double>(end - start).count();
-    const char* label = env_true("CUFILE_FORCE_COMPAT_MODE") ? "cufile-forced-compat" : "cufile-auto-unverified-path";
-    return {label, bytes, seconds};
+    const char* label = env_true("CUFILE_FORCE_COMPAT_MODE") ? "cufile-forced-compat"
+                                                             : "cufile-auto-unverified-path";
+    return {label, options.bytes, seconds};
 }

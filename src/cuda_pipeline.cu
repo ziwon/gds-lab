@@ -12,6 +12,10 @@
 #include <unistd.h>
 
 namespace {
+// The reduction below halves this each step, so it must stay a power of two,
+// and the kernel must be launched with exactly this block size.
+constexpr int kThreads = 256;
+
 void cuda_check(cudaError_t status, const char* op) {
     if (status != cudaSuccess) {
         throw std::runtime_error(std::string(op) + ": " + cudaGetErrorString(status));
@@ -19,7 +23,7 @@ void cuda_check(cudaError_t status, const char* op) {
 }
 
 __global__ void touch_kernel(const unsigned char* data, std::size_t n, unsigned long long* checksum) {
-    __shared__ unsigned long long partial[256];
+    __shared__ unsigned long long partial[kThreads];
     const unsigned int tid = threadIdx.x;
     const std::size_t stride = static_cast<std::size_t>(blockDim.x) * gridDim.x;
     std::size_t i = static_cast<std::size_t>(blockIdx.x) * blockDim.x + tid;
@@ -32,12 +36,37 @@ __global__ void touch_kernel(const unsigned char* data, std::size_t n, unsigned 
     partial[tid] = local;
     __syncthreads();
 
-    for (unsigned int offset = blockDim.x / 2; offset > 0; offset >>= 1) {
+    for (unsigned int offset = kThreads / 2; offset > 0; offset >>= 1) {
         if (tid < offset) partial[tid] += partial[tid + offset];
         __syncthreads();
     }
     if (tid == 0) atomicAdd(checksum, partial[0]);
 }
+
+int grid_for(std::size_t bytes) {
+    const std::size_t needed = (bytes + kThreads - 1) / kThreads;
+    return static_cast<int>(std::min<std::size_t>(4096, std::max<std::size_t>(1, needed)));
+}
+
+struct DeviceScalar {
+    unsigned long long* ptr = nullptr;
+    DeviceScalar() {
+        cuda_check(cudaMalloc(reinterpret_cast<void**>(&ptr), sizeof(unsigned long long)),
+                   "cudaMalloc(checksum)");
+        cuda_check(cudaMemset(ptr, 0, sizeof(unsigned long long)), "cudaMemset(checksum)");
+    }
+    ~DeviceScalar() { if (ptr) cudaFree(ptr); }
+    DeviceScalar(const DeviceScalar&) = delete;
+    DeviceScalar& operator=(const DeviceScalar&) = delete;
+};
+
+struct FdGuard {
+    int fd = -1;
+    explicit FdGuard(int value) : fd(value) {}
+    ~FdGuard() { if (fd >= 0) ::close(fd); }
+    FdGuard(const FdGuard&) = delete;
+    FdGuard& operator=(const FdGuard&) = delete;
+};
 
 std::size_t pread_exact(int fd, void* buffer, std::size_t bytes, off_t offset) {
     auto* out = static_cast<unsigned char*>(buffer);
@@ -52,11 +81,14 @@ std::size_t pread_exact(int fd, void* buffer, std::size_t bytes, off_t offset) {
 }
 }  // namespace
 
-BenchmarkResult run_overlap(const std::string& path, std::size_t bytes, std::size_t chunk_bytes) {
+BenchmarkResult run_overlap(const BenchmarkOptions& options) {
+    const std::size_t bytes = options.bytes;
+    const std::size_t chunk_bytes = options.chunk_bytes;
     if (chunk_bytes == 0) throw std::invalid_argument("--chunk-bytes must be > 0");
 
-    const int fd = ::open(path.c_str(), O_RDONLY);
-    if (fd < 0) throw std::runtime_error("open(" + path + "): " + std::strerror(errno));
+    const int raw_fd = ::open(options.path.c_str(), O_RDONLY);
+    if (raw_fd < 0) throw std::runtime_error("open(" + options.path + "): " + std::strerror(errno));
+    FdGuard fd(raw_fd);
 
     void* host[2] = {nullptr, nullptr};
     unsigned char* device[2] = {nullptr, nullptr};
@@ -64,8 +96,19 @@ BenchmarkResult run_overlap(const std::string& path, std::size_t bytes, std::siz
     cudaStream_t compute_stream = nullptr;
     cudaEvent_t copy_done[2] = {nullptr, nullptr};
     cudaEvent_t compute_done[2] = {nullptr, nullptr};
-    unsigned long long* device_checksum = nullptr;
 
+    auto release = [&]() {
+        if (copy_stream) cudaStreamDestroy(copy_stream);
+        if (compute_stream) cudaStreamDestroy(compute_stream);
+        for (int slot = 0; slot < 2; ++slot) {
+            if (copy_done[slot]) cudaEventDestroy(copy_done[slot]);
+            if (compute_done[slot]) cudaEventDestroy(compute_done[slot]);
+            if (device[slot]) cudaFree(device[slot]);
+            if (host[slot]) cudaFreeHost(host[slot]);
+        }
+    };
+
+    try {
     for (int slot = 0; slot < 2; ++slot) {
         cuda_check(cudaHostAlloc(&host[slot], chunk_bytes, cudaHostAllocDefault), "cudaHostAlloc");
         cuda_check(cudaMalloc(reinterpret_cast<void**>(&device[slot]), chunk_bytes), "cudaMalloc");
@@ -74,8 +117,7 @@ BenchmarkResult run_overlap(const std::string& path, std::size_t bytes, std::siz
     }
     cuda_check(cudaStreamCreateWithFlags(&copy_stream, cudaStreamNonBlocking), "cudaStreamCreate(copy)");
     cuda_check(cudaStreamCreateWithFlags(&compute_stream, cudaStreamNonBlocking), "cudaStreamCreate(compute)");
-    cuda_check(cudaMalloc(reinterpret_cast<void**>(&device_checksum), sizeof(unsigned long long)), "cudaMalloc(checksum)");
-    cuda_check(cudaMemset(device_checksum, 0, sizeof(unsigned long long)), "cudaMemset(checksum)");
+    DeviceScalar accumulator;
 
     const auto start = std::chrono::steady_clock::now();
     std::size_t processed = 0;
@@ -86,16 +128,15 @@ BenchmarkResult run_overlap(const std::string& path, std::size_t bytes, std::siz
         if (step >= 2) cuda_check(cudaEventSynchronize(compute_done[slot]), "cudaEventSynchronize(reuse)");
 
         const std::size_t current = std::min(chunk_bytes, bytes - processed);
-        pread_exact(fd, host[slot], current, static_cast<off_t>(processed));
+        pread_exact(fd.fd, host[slot], current, static_cast<off_t>(processed));
 
         cuda_check(cudaMemcpyAsync(device[slot], host[slot], current, cudaMemcpyHostToDevice, copy_stream),
                    "cudaMemcpyAsync");
         cuda_check(cudaEventRecord(copy_done[slot], copy_stream), "cudaEventRecord(copy)");
         cuda_check(cudaStreamWaitEvent(compute_stream, copy_done[slot], 0), "cudaStreamWaitEvent");
 
-        constexpr int threads = 256;
-        const int blocks = static_cast<int>(std::min<std::size_t>(4096, (current + threads - 1) / threads));
-        touch_kernel<<<blocks, threads, 0, compute_stream>>>(device[slot], current, device_checksum);
+        touch_kernel<<<grid_for(current), kThreads, 0, compute_stream>>>(
+            device[slot], current, accumulator.ptr);
         cuda_check(cudaGetLastError(), "touch_kernel launch");
         cuda_check(cudaEventRecord(compute_done[slot], compute_stream), "cudaEventRecord(compute)");
 
@@ -107,22 +148,18 @@ BenchmarkResult run_overlap(const std::string& path, std::size_t bytes, std::siz
     const auto end = std::chrono::steady_clock::now();
 
     unsigned long long checksum = 0;
-    cuda_check(cudaMemcpy(&checksum, device_checksum, sizeof(checksum), cudaMemcpyDeviceToHost), "cudaMemcpy(checksum)");
+    cuda_check(cudaMemcpy(&checksum, accumulator.ptr, sizeof(checksum), cudaMemcpyDeviceToHost),
+               "cudaMemcpy(checksum)");
 
-    cudaFree(device_checksum);
-    cudaStreamDestroy(copy_stream);
-    cudaStreamDestroy(compute_stream);
-    for (int slot = 0; slot < 2; ++slot) {
-        cudaEventDestroy(copy_done[slot]);
-        cudaEventDestroy(compute_done[slot]);
-        cudaFree(device[slot]);
-        cudaFreeHost(host[slot]);
-    }
-    ::close(fd);
+    release();
 
     const double seconds = std::chrono::duration<double>(end - start).count();
     BenchmarkResult result{"double-buffer-overlap", processed, seconds};
     result.checksum = checksum;
     result.checksum_valid = true;
     return result;
+    } catch (...) {
+        release();
+        throw;
+    }
 }
