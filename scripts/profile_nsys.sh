@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-FILE="${1:-/tmp/gds-lab.bin}"
+FILE="${1:-/data/gds-lab.bin}"
 BACKEND="${2:-overlap}"
 BYTES="${BYTES:-1G}"
 CHUNK_BYTES="${CHUNK_BYTES:-64M}"

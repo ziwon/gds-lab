@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-FILE="${1:-/tmp/gds-lab.bin}"
+FILE="${1:-/data/gds-lab.bin}"
 SIZE_GIB="${2:-4}"
 
 if ! [[ "$SIZE_GIB" =~ ^[0-9]+$ ]] || [[ "$SIZE_GIB" -lt 1 ]]; then

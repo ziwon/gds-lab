@@ -1,5 +1,5 @@
 BUILD_DIR ?= build
-DATASET ?= /tmp/gds-lab.bin
+DATASET ?= /data/gds-lab.bin
 SIZE_GIB ?= 4
 BYTES ?= 1G
 CHUNK_BYTES ?= 64M

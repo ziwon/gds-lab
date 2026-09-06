@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -u
 
-FILE="${1:-/tmp/gds-lab.bin}"
+FILE="${1:-/data/gds-lab.bin}"
 BYTES="${2:-1G}"
 CHUNK_BYTES="${3:-64M}"
 BIN="${GDSLAB_BIN:-./build/gds_lab}"
