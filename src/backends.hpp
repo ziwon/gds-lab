@@ -22,6 +22,8 @@ struct BenchmarkOptions {
     std::uint64_t seed = 0;
     // Open with O_DIRECT where the backend supports both modes (overlap).
     bool direct = false;
+    // cuFile only: register the device buffer with cuFileBufRegister.
+    bool buf_register = true;
 };
 
 struct BenchmarkResult {
@@ -39,6 +41,9 @@ struct BenchmarkResult {
     // when the transfer is correct.
     std::uint64_t checksum = 0;
     bool checksum_valid = false;
+    // Backend-specific facts worth recording with the number (e.g. whether
+    // cuFileBufRegister succeeded).
+    std::string note;
 };
 
 BenchmarkResult run_pageable(const BenchmarkOptions& options);

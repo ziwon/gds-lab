@@ -58,6 +58,7 @@ void usage(const char* argv0) {
         << "  --random-access     visit read blocks in shuffled order (experiment 05)\n"
         << "  --seed N            shuffle seed (default: 0)\n"
         << "  --direct            use O_DIRECT for the overlap backend\n"
+        << "  --no-buf-register   skip cuFileBufRegister on the cuFile backend\n"
         << "  --help              show this help\n";
 }
 
@@ -105,6 +106,7 @@ int main(int argc, char** argv) {
             else if (arg == "--random-access") options.random_access = true;
             else if (arg == "--seed") options.seed = std::stoull(require_value("--seed"));
             else if (arg == "--direct") options.direct = true;
+            else if (arg == "--no-buf-register") options.buf_register = false;
             else if (arg == "--help" || arg == "-h") { usage(argv[0]); return 0; }
             else throw std::invalid_argument("unknown argument: " + arg);
         }
@@ -162,6 +164,7 @@ int main(int argc, char** argv) {
                           << " h2d_GBps=" << copy_gbps;
             }
             if (result.checksum_valid) std::cout << " checksum=" << result.checksum;
+            if (!result.note.empty()) std::cout << ' ' << result.note;
             std::cout << '\n';
         }
         return 0;
