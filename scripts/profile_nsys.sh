@@ -16,6 +16,10 @@ mkdir -p results
 
 ARGS=(--backend "$BACKEND" --file "$FILE" --bytes "$BYTES")
 if [[ "$BACKEND" == "overlap" ]]; then ARGS+=(--chunk-bytes "$CHUNK_BYTES"); fi
+# Experiment 07 needs the O_DIRECT run too: a buffered pipeline whose region
+# fits in RAM hides the starvation the profile is meant to show.
+if [[ "${DIRECT:-0}" == "1" ]]; then ARGS+=(--direct); fi
+if [[ -n "${READ_CHUNK:-}" ]]; then ARGS+=(--read-chunk "$READ_CHUNK"); fi
 
 nsys profile \
   --trace=cuda,nvtx,osrt \
