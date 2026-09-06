@@ -22,20 +22,25 @@ class BinaryTensorDataset(Dataset):
         self.length = path.stat().st_size // sample_bytes
         if self.length < 1:
             raise ValueError("file is smaller than one sample")
-        self._fh = None
+        self._fd = None
 
     def __len__(self) -> int:
         return self.length
 
-    def _file(self):
-        if self._fh is None:
-            self._fh = self.path.open("rb", buffering=0)
-        return self._fh
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        state["_fd"] = None
+        return state
+
+    def _fileno(self) -> int:
+        if self._fd is None:
+            self._fd = os.open(self.path, os.O_RDONLY)
+        return self._fd
 
     def __getitem__(self, index: int):
-        fh = self._file()
-        fh.seek(index * self.sample_bytes)
-        raw = fh.read(self.sample_bytes)
+        # pread does not use the kernel file offset, so a handle inherited
+        # across fork (workers=0 then num_workers>0) cannot interleave seeks.
+        raw = os.pread(self._fileno(), self.sample_bytes, index * self.sample_bytes)
         if len(raw) != self.sample_bytes:
             raise RuntimeError("short read")
         array = np.frombuffer(raw, dtype=np.float32).copy()
