@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 import time
 from pathlib import Path
 
@@ -70,11 +71,11 @@ def bench(dataset: Dataset, workers: int, pin_memory: bool, prefetch: int, batch
         torch.cuda.synchronize()
     start = time.perf_counter()
     seen = 0
-    accumulator = torch.zeros((), device=device)
+    accumulator = torch.zeros((), dtype=torch.float64, device=device)
 
     for batch_index, (inputs, _targets) in enumerate(loader):
         inputs = inputs.to(device, non_blocking=pin_memory and device.type == "cuda")
-        accumulator = accumulator + inputs.sum()
+        accumulator = accumulator + inputs.double().sum()
         seen += inputs.shape[0]
         if batch_index + 1 >= batches:
             break
@@ -111,11 +112,22 @@ def main() -> int:
     print(f"pin_memory={pin_memory} prefetch={args.prefetch} random_access={args.random_access}")
     print("workers,samples_per_second,seconds,checksum")
 
+    checksums = []
     for worker_count in workers:
         rate, elapsed, checksum = bench(
             dataset, worker_count, pin_memory, args.prefetch, args.batches, args.random_access
         )
-        print(f"{worker_count},{rate:.2f},{elapsed:.4f},{checksum:.1f}")
+        checksums.append(checksum)
+        print(f"{worker_count},{rate:.2f},{elapsed:.4f},{checksum:.6f}")
+
+    if not args.random_access and len(checksums) > 1:
+        if any(c != checksums[0] for c in checksums[1:]):
+            print(
+                "ERROR: sequential checksums differ across worker counts; "
+                "the loader is not returning the same bytes",
+                file=sys.stderr,
+            )
+            return 1
     return 0
 
 

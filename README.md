@@ -48,7 +48,7 @@ make inspect
 
 ### 2. Create a test file
 
-By default this writes a 4 GiB file to `/data/gds-lab.bin` (xfs on the local NVMe). Override `DATASET` only if you intend to measure a different filesystem.
+By default this writes a 4 GiB file of deterministic finite float32 values to `/data/gds-lab.bin` (xfs on the local NVMe). `/dev/zero` is not used: a zero file makes experiment 08's checksum identically 0.0, which hides wrong-offset reads. Override `DATASET` only if you intend to measure a different filesystem.
 
 ```bash
 make dataset SIZE_GIB=4

@@ -11,9 +11,10 @@ fi
 
 mkdir -p "$(dirname "$FILE")"
 BYTES=$((SIZE_GIB * 1024 * 1024 * 1024))
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-echo "Writing ${SIZE_GIB} GiB to $FILE ..."
-dd if=/dev/zero of="$FILE" bs=16M count=$((SIZE_GIB * 64)) status=progress conv=fdatasync
+echo "Writing ${SIZE_GIB} GiB of deterministic float32 to $FILE ..."
+python3 "$SCRIPT_DIR/write_float32_dataset.py" "$FILE" "$BYTES"
 
 ACTUAL=$(stat -c '%s' "$FILE")
 if [[ "$ACTUAL" -ne "$BYTES" ]]; then
