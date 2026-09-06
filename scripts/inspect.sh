@@ -160,11 +160,11 @@ if has findmnt; then
 fi
 
 section "Tooling"
-for tool in cmake nvcc nsys ncu fio nvme iostat pidstat numactl; do
+for tool in cmake nvcc nsys ncu fio nvme iostat pidstat numactl gdscheck.py gds_stats gdsio; do
   if has "$tool"; then
-    printf '  %-8s %s\n' "$tool" "$(command -v "$tool")"
+    printf '  %-12s %s\n' "$tool" "$(command -v "$tool")"
   else
-    printf '  %-8s MISSING\n' "$tool"
+    printf '  %-12s MISSING\n' "$tool"
   fi
 done
 if has python3; then

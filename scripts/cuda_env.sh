@@ -63,6 +63,8 @@ case "$_gdslab_found" in
         CUDA_HOME=${_gdslab_found#ok }
         export CUDA_HOME
         PATH="$CUDA_HOME/bin:$PATH"
+        # libcufile redist ships gdscheck.py / gds_stats / gdsio here, not in bin/.
+        [ -d "$CUDA_HOME/tools" ] && PATH="$CUDA_HOME/tools:$PATH"
         export PATH
         for _libdir in "$CUDA_HOME/lib64" "$CUDA_HOME/lib"; do
             [ -d "$_libdir" ] || continue

@@ -66,7 +66,7 @@ source scripts/cuda_env.sh
 make build
 ```
 
-The redist install also provides `cufile.h`, `libcufile.so` and NVIDIA's own `tools/` (`gdscheck.py`, `gds_stats`, `gdsio`), so the cuFile backend and the capability check in experiment 00 both become available. It does **not** install `nvidia-fs`, so cuFile still runs in compatibility mode.
+The redist install also provides `cufile.h`, `libcufile.so` and NVIDIA's GDS tools (`gdscheck.py`, `gds_stats`, `gdsio`). `source scripts/cuda_env.sh` puts those tools on `PATH`. It does **not** install `nvidia-fs`, so cuFile still runs in compatibility mode.
 
 ### 3b. Python dependencies
 
