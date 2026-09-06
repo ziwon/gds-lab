@@ -1,0 +1,13 @@
+{
+  "logging": {
+    "level": "ERROR"
+  },
+  "profile": {
+    "nvtx": false,
+    "cufile_stats": 1
+  },
+  "properties": {
+    "allow_compat_mode": true,
+    "force_compat_mode": false
+  }
+}
