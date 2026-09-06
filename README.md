@@ -48,20 +48,33 @@ make inspect
 
 ### 2. Create a test file
 
-By default this writes a 4 GiB file. Put it on the NVMe/filesystem you actually want to measure.
+By default this writes a 4 GiB file to `/data/gds-lab.bin` (xfs on the local NVMe). Override `DATASET` only if you intend to measure a different filesystem.
 
 ```bash
-make dataset DATASET=/data/gds-lab.bin SIZE_GIB=4
+make dataset SIZE_GIB=4
 ```
+
+`make inspect` compares the dataset against `MemTotal` and warns when it is small enough to live entirely in the page cache. On a large-memory host, treat `--backend direct` as the storage-path measurement and the buffered backends as cache-path measurements.
 
 ### 3. Build
 
+A toolkit is selected by capability, not by path: `scripts/cuda_env.sh` rejects an `nvcc` that cannot target the installed GPU. This matters because Ubuntu 24.04's `/usr/bin/nvcc` is CUDA 12.0 and cannot emit code for `sm_120` (RTX 5080/5090). If no usable toolkit is present, install a user-local one (compiler, runtime and cuFile; no driver):
+
 ```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j
+./scripts/install_cuda_redist.sh
+source scripts/cuda_env.sh
+make build
 ```
 
-If `cufile.h` and `libcufile.so` are available, the cuFile backend is enabled automatically.
+The redist install also provides `cufile.h`, `libcufile.so` and NVIDIA's own `tools/` (`gdscheck.py`, `gds_stats`, `gdsio`), so the cuFile backend and the capability check in experiment 00 both become available. It does **not** install `nvidia-fs`, so cuFile still runs in compatibility mode.
+
+### 3b. Python dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+The default PyPI `torch` wheel is CPU-only and makes experiment 08 meaningless; `requirements.txt` pins the CUDA build.
 
 ### 4. Run the staged I/O experiments
 

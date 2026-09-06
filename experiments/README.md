@@ -26,8 +26,9 @@ The experiment order is deliberate: establish the normal host-staged path before
 ## Suggested first run
 
 ```bash
-make inspect DATASET=/data/gds-lab.bin
-make dataset DATASET=/data/gds-lab.bin SIZE_GIB=4
+source scripts/cuda_env.sh
+make inspect
+make dataset SIZE_GIB=4
 make build
-make bench DATASET=/data/gds-lab.bin BYTES=1G CHUNK_BYTES=64M
+make bench BYTES=1G CHUNK_BYTES=64M
 ```
