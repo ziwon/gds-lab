@@ -74,8 +74,14 @@ while IFS='|' read -r name rel sha; do
   rm -rf "$extract"
   mkdir -p "$extract"
   tar -xJf "$archive" -C "$extract"
-  inner="$(find "$extract" -mindepth 1 -maxdepth 1 -type d | head -1)"
-  cp -a "$inner"/. "$PREFIX/"
+  shopt -s nullglob
+  inners=("$extract"/*-archive)
+  shopt -u nullglob
+  if [[ ${#inners[@]} -ne 1 || ! -d "${inners[0]}" ]]; then
+    echo "unexpected archive layout in $archive (need exactly one *-archive directory)" >&2
+    exit 1
+  fi
+  cp -a "${inners[0]}"/. "$PREFIX/"
   rm -rf "$extract"
 done <<<"$COMPONENTS"
 
