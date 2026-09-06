@@ -8,6 +8,21 @@ CUFILE_FORCE_COMPAT_MODE=true \
   ./build/gds_lab --backend cufile --file /data/gds-lab.bin --bytes 1G
 ```
 
+## Variables this backend exposes
+
+- `--read-chunk` sizes each `cuFileRead`. `gdscheck.py -p` reports
+  `max_direct_io_size_kb`, which is where libcufile splits internally; the two
+  interact, so sweep the chunk size the same way experiment 04 does.
+- `--no-buf-register` skips `cuFileBufRegister`. Registration pins the device
+  buffer for reuse across reads; without it cuFile stages through its own
+  preallocated bounce buffers. Which one ran is recorded in the result line as
+  `buf_register=ok|off|failed:<reason>`, because it is a different code path and
+  therefore a different number.
+- `--random-access` shuffles the block order, as in experiment 05.
+
+Failures are decoded through `CUFILE_ERRSTR`, so a rejected call reports the
+cuFile status or the errno rather than a bare negative number.
+
 ## Why the direct path is SKIPPED here
 
 `SKIPPED` has two very different causes and they must not be recorded the same way:

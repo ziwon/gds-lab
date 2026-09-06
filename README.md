@@ -85,6 +85,43 @@ The default PyPI `torch` wheel is CPU-only and makes experiment 08 meaningless; 
 ./build/gds_lab --backend overlap  --file /data/gds-lab.bin --bytes 1G --chunk-bytes 64M
 ```
 
+Or `make bench`, which runs all of them and then checks that they agree.
+
+Each result line carries the facts needed to interpret it:
+
+```text
+backend=pinned-async offset=0 bytes=1073741824 seconds=0.1183
+  effective_GBps=9.07
+  read_seconds=... read_GBps=...    storage -> host buffer
+  copy_seconds=... h2d_GBps=...     host buffer -> device
+  checksum=...
+```
+
+`read_*` and `copy_*` are reported separately because a single total cannot say
+whether a change moved the storage path or the transfer path; pipelined backends
+(`overlap`, `cufile`) omit the split rather than double-count overlapped time.
+
+The `checksum` is the GPU-side sum of every byte in the region. It is identical
+across backends, block sizes and access patterns whenever the transfer is
+correct, so a mismatch is a bug in the run and not a performance result.
+`make bench` fails if the backends disagree.
+
+Variables the experiments sweep:
+
+| Flag | Experiment | Meaning |
+|---|---|---|
+| `--read-chunk SIZE` | 04 | storage read granularity (default 16M) |
+| `--chunk-bytes SIZE` | 03, 07 | overlap pipeline buffer size (default 64M) |
+| `--random-access`, `--seed N` | 05 | shuffle the block visit order |
+| `--direct` | 03, 07 | run the overlap pipeline on `O_DIRECT` |
+| `--no-buf-register` | 06 | skip `cuFileBufRegister` |
+| `--offset SIZE`, `--fixed-offset` | all | which region to read, and whether iterations advance |
+
+`--iterations N` advances the offset by `--bytes` each time by default, so a
+repeat run reads new extents instead of re-reading the page cache. Pass
+`--fixed-offset` when a hot-cache measurement is what you actually want; the run
+labels itself either way.
+
 ### 5. Run cuFile in compatibility mode
 
 ```bash
