@@ -5,6 +5,7 @@
 
 #include <chrono>
 #include <cerrno>
+#include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
 #include <stdexcept>
