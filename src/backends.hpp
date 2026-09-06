@@ -16,6 +16,12 @@ struct BenchmarkResult {
     std::string label;
     std::size_t bytes = 0;
     double seconds = 0.0;
+    // Storage read and H2D copy measured separately. Experiments 01 and 02 ask
+    // which of the two a change actually moved, which a single total cannot
+    // answer. Pipelined backends overlap them, so they report split_valid=false.
+    double read_seconds = 0.0;
+    double copy_seconds = 0.0;
+    bool split_valid = false;
     std::uint64_t checksum = 0;
     bool checksum_valid = false;
 };

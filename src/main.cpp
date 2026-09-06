@@ -119,6 +119,20 @@ int main(int argc, char** argv) {
                       << " bytes=" << result.bytes
                       << " seconds=" << result.seconds
                       << " effective_GBps=" << gbps;
+            if (result.split_valid) {
+                const double read_gbps =
+                    result.read_seconds > 0.0
+                        ? static_cast<double>(result.bytes) / result.read_seconds / 1.0e9
+                        : 0.0;
+                const double copy_gbps =
+                    result.copy_seconds > 0.0
+                        ? static_cast<double>(result.bytes) / result.copy_seconds / 1.0e9
+                        : 0.0;
+                std::cout << " read_seconds=" << result.read_seconds
+                          << " copy_seconds=" << result.copy_seconds
+                          << " read_GBps=" << read_gbps
+                          << " h2d_GBps=" << copy_gbps;
+            }
             if (result.checksum_valid) std::cout << " checksum=" << result.checksum;
             std::cout << '\n';
         }

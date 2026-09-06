@@ -124,9 +124,23 @@ void read_exact(int fd, void* buffer, std::size_t bytes, bool direct) {
     }
 }
 
-double elapsed_seconds(std::chrono::steady_clock::time_point start,
+double seconds_between(std::chrono::steady_clock::time_point start,
                        std::chrono::steady_clock::time_point end) {
     return std::chrono::duration<double>(end - start).count();
+}
+
+BenchmarkResult finish(const std::string& label, const BenchmarkOptions& options,
+                       std::chrono::steady_clock::time_point t0,
+                       std::chrono::steady_clock::time_point t1,
+                       std::chrono::steady_clock::time_point t2) {
+    BenchmarkResult result;
+    result.label = label;
+    result.bytes = options.bytes;
+    result.seconds = seconds_between(t0, t2);
+    result.read_seconds = seconds_between(t0, t1);
+    result.copy_seconds = seconds_between(t1, t2);
+    result.split_valid = true;
+    return result;
 }
 }  // namespace
 
@@ -139,13 +153,14 @@ BenchmarkResult run_pageable(const BenchmarkOptions& options) {
     std::vector<unsigned char> host(options.bytes);
     DeviceBuffer device(options.bytes);
 
-    const auto start = std::chrono::steady_clock::now();
+    const auto t0 = std::chrono::steady_clock::now();
     read_exact(fd.fd, host.data(), options.bytes, false);
+    const auto t1 = std::chrono::steady_clock::now();
     cuda_check(cudaMemcpy(device.ptr, host.data(), options.bytes, cudaMemcpyHostToDevice),
                "cudaMemcpy");
-    const auto end = std::chrono::steady_clock::now();
+    const auto t2 = std::chrono::steady_clock::now();
 
-    return {"pageable-sync", options.bytes, elapsed_seconds(start, end)};
+    return finish("pageable-sync", options, t0, t1, t2);
 }
 
 BenchmarkResult run_pinned(const BenchmarkOptions& options) {
@@ -154,14 +169,15 @@ BenchmarkResult run_pinned(const BenchmarkOptions& options) {
     DeviceBuffer device(options.bytes);
     StreamGuard stream;
 
-    const auto start = std::chrono::steady_clock::now();
+    const auto t0 = std::chrono::steady_clock::now();
     read_exact(fd.fd, host.ptr, options.bytes, false);
+    const auto t1 = std::chrono::steady_clock::now();
     cuda_check(cudaMemcpyAsync(device.ptr, host.ptr, options.bytes, cudaMemcpyHostToDevice,
                                stream.stream), "cudaMemcpyAsync");
     cuda_check(cudaStreamSynchronize(stream.stream), "cudaStreamSynchronize");
-    const auto end = std::chrono::steady_clock::now();
+    const auto t2 = std::chrono::steady_clock::now();
 
-    return {"pinned-async", options.bytes, elapsed_seconds(start, end)};
+    return finish("pinned-async", options, t0, t1, t2);
 }
 
 BenchmarkResult run_direct(const BenchmarkOptions& options) {
@@ -174,14 +190,15 @@ BenchmarkResult run_direct(const BenchmarkOptions& options) {
     DeviceBuffer device(options.bytes);
     StreamGuard stream;
 
-    const auto start = std::chrono::steady_clock::now();
+    const auto t0 = std::chrono::steady_clock::now();
     read_exact(fd.fd, host.ptr, options.bytes, true);
+    const auto t1 = std::chrono::steady_clock::now();
     cuda_check(cudaMemcpyAsync(device.ptr, host.ptr, options.bytes, cudaMemcpyHostToDevice,
                                stream.stream), "cudaMemcpyAsync");
     cuda_check(cudaStreamSynchronize(stream.stream), "cudaStreamSynchronize");
-    const auto end = std::chrono::steady_clock::now();
+    const auto t2 = std::chrono::steady_clock::now();
 
-    return {"odirect-pinned-async", options.bytes, elapsed_seconds(start, end)};
+    return finish("odirect-pinned-async", options, t0, t1, t2);
 }
 
 #if !GDSLAB_HAS_CUFILE
