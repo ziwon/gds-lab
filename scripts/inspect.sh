@@ -176,17 +176,24 @@ for tool in cmake nvcc nsys ncu fio nvme iostat pidstat numactl gdscheck.py gds_
   fi
 done
 if has python3; then
-  python3 - <<'PY' 2>/dev/null || echo "  torch    not importable"
+  python3 - <<'PY' 2>/dev/null || echo "  python3      probe failed"
 import importlib.util
-spec = importlib.util.find_spec("torch")
-if spec is None:
-    print("  torch    not installed (experiment 08 needs it)")
+
+if importlib.util.find_spec("numpy") is None:
+    # make dataset generates the file with numpy, not dd.
+    print("  numpy        MISSING (make dataset cannot generate the test file)")
+else:
+    import numpy
+    print(f"  numpy        {numpy.__version__}")
+
+if importlib.util.find_spec("torch") is None:
+    print("  torch        MISSING (experiment 08 needs it)")
 else:
     import torch
     ok = torch.cuda.is_available()
-    print(f"  torch    {torch.__version__} cuda={torch.version.cuda} available={ok}")
+    print(f"  torch        {torch.__version__} cuda={torch.version.cuda} available={ok}")
     if not ok:
-        print("           WARNING: CPU-only build. Experiment 08 cannot measure H2D/pin_memory.")
+        print("               WARNING: CPU-only build. Experiment 08 cannot measure H2D/pin_memory.")
 PY
 fi
 
