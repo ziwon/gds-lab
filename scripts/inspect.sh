@@ -106,11 +106,19 @@ if has lspci; then
   echo
   lspci | grep -Ei 'NVIDIA|Non-Volatile memory|NVMe' || true
 fi
+echo
 if [[ -d /sys/class/iommu ]] && [[ -n "$(ls -A /sys/class/iommu 2>/dev/null)" ]]; then
-  echo
-  echo "IOMMU: active ($(ls /sys/class/iommu | tr '\n' ' '))"
-  grep -o 'iommu=[^ ]*' /proc/cmdline || echo "kernel cmdline: no iommu= override (P2P DMA may be blocked)"
+  echo "IOMMU devices: $(ls /sys/class/iommu | tr '\n' ' ')"
+else
+  echo "IOMMU devices: none"
 fi
+cmdline_iommu="$(tr ' ' '\n' < /proc/cmdline | grep -E '^(intel_iommu|amd_iommu|iommu)=' || true)"
+if [[ -n "$cmdline_iommu" ]]; then
+  echo "kernel cmdline: $(printf '%s' "$cmdline_iommu" | tr '\n' ' ')"
+else
+  echo "kernel cmdline: no iommu=/intel_iommu=/amd_iommu="
+fi
+echo "GDS implication: see gdscheck.py IOMMU State (run gdscheck.py -p)"
 
 section "NVMe"
 if has nvme; then nvme list || true; else echo "nvme-cli: not installed"; fi
