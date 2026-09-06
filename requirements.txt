@@ -1,2 +1,10 @@
+# The default PyPI torch wheel is CPU-only, which makes experiment 08
+# (pin_memory / H2D / GPU starvation) unmeasurable. Pull the CUDA build:
+#
+#   pip install -r requirements.txt
+#
+# cu130 matches driver 580.x (CUDA 13.0). Use cu128 for older drivers.
+--extra-index-url https://download.pytorch.org/whl/cu130
+
 numpy
-torch
+torch==2.11.0+cu130
