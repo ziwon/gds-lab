@@ -8,6 +8,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
+#include <numeric>
+#include <random>
 #include <stdexcept>
 #include <string>
 #include <unistd.h>
@@ -22,7 +24,6 @@ namespace {
 // configurations still require 4 KiB for O_DIRECT. inspect.sh reports the
 // device value so a deliberate override can be justified from evidence.
 constexpr std::size_t kDirectAlignment = 4096;
-constexpr std::size_t kReadChunk = 16ULL * 1024ULL * 1024ULL;
 
 void cuda_check(cudaError_t status, const char* op) {
     if (status != cudaSuccess) {
@@ -100,22 +101,16 @@ int open_readonly(const std::string& path, bool direct) {
     return fd;
 }
 
-void read_exact(int fd, void* buffer, std::size_t bytes, bool direct) {
-    auto* out = static_cast<unsigned char*>(buffer);
+void pread_all(int fd, unsigned char* out, std::size_t bytes, off_t offset, bool direct) {
     std::size_t done = 0;
-
     while (done < bytes) {
-        const std::size_t wanted = std::min(kReadChunk, bytes - done);
-        if (direct && ((wanted % kDirectAlignment) != 0 || (done % kDirectAlignment) != 0)) {
-            throw std::runtime_error("O_DIRECT read size/offset must be 4 KiB aligned");
-        }
-
-        const ssize_t n = ::pread(fd, out + done, wanted, static_cast<off_t>(done));
+        const ssize_t n = ::pread(fd, out + done, bytes - done, offset + static_cast<off_t>(done));
         if (n < 0) {
             throw std::runtime_error(std::string("pread: ") + std::strerror(errno));
         }
         if (n == 0) {
-            throw std::runtime_error("unexpected EOF: test file is smaller than --bytes");
+            throw std::runtime_error(
+                "unexpected EOF: file is smaller than --offset + --bytes");
         }
         if (direct && (static_cast<std::size_t>(n) % kDirectAlignment) != 0) {
             throw std::runtime_error("O_DIRECT returned a non-aligned short read");
@@ -124,9 +119,45 @@ void read_exact(int fd, void* buffer, std::size_t bytes, bool direct) {
     }
 }
 
+// Reads [offset, offset + bytes) into buffer in read_chunk-sized blocks. With
+// random_access the block visit order is shuffled, but each block still lands
+// at its own position in the buffer, so the checksum is order-independent and
+// can prove the randomized path read the same data.
+void read_region(int fd, void* buffer, const BenchmarkOptions& options, bool direct) {
+    auto* out = static_cast<unsigned char*>(buffer);
+    const std::size_t chunk = options.read_chunk;
+    if (chunk == 0) throw std::invalid_argument("--read-chunk must be > 0");
+
+    if (direct) {
+        if ((options.offset % kDirectAlignment) != 0 || (chunk % kDirectAlignment) != 0) {
+            throw std::runtime_error(
+                "SKIPPED: --offset and --read-chunk must be multiples of 4096 for O_DIRECT");
+        }
+    }
+
+    const std::size_t blocks = (options.bytes + chunk - 1) / chunk;
+    std::vector<std::size_t> order(blocks);
+    std::iota(order.begin(), order.end(), std::size_t{0});
+    if (options.random_access) {
+        std::mt19937_64 rng(options.seed);
+        std::shuffle(order.begin(), order.end(), rng);
+    }
+
+    for (const std::size_t block : order) {
+        const std::size_t block_offset = block * chunk;
+        const std::size_t wanted = std::min(chunk, options.bytes - block_offset);
+        pread_all(fd, out + block_offset, wanted,
+                  static_cast<off_t>(options.offset + block_offset), direct);
+    }
+}
+
 double seconds_between(std::chrono::steady_clock::time_point start,
                        std::chrono::steady_clock::time_point end) {
     return std::chrono::duration<double>(end - start).count();
+}
+
+std::string pattern_suffix(const BenchmarkOptions& options) {
+    return options.random_access ? "-random" : "";
 }
 
 BenchmarkResult finish(const std::string& label, const BenchmarkOptions& options,
@@ -135,7 +166,7 @@ BenchmarkResult finish(const std::string& label, const BenchmarkOptions& options
                        std::chrono::steady_clock::time_point t2,
                        const void* device) {
     BenchmarkResult result;
-    result.label = label;
+    result.label = label + pattern_suffix(options);
     result.bytes = options.bytes;
     result.seconds = seconds_between(t0, t2);
     result.read_seconds = seconds_between(t0, t1);
@@ -153,11 +184,13 @@ bool cufile_compiled() {
 
 BenchmarkResult run_pageable(const BenchmarkOptions& options) {
     FdGuard fd(open_readonly(options.path, false));
+    // Touched by the allocator before the timer, so this measures the read and
+    // the copy, not first-touch page faults on the destination.
     std::vector<unsigned char> host(options.bytes);
     DeviceBuffer device(options.bytes);
 
     const auto t0 = std::chrono::steady_clock::now();
-    read_exact(fd.fd, host.data(), options.bytes, false);
+    read_region(fd.fd, host.data(), options, false);
     const auto t1 = std::chrono::steady_clock::now();
     cuda_check(cudaMemcpy(device.ptr, host.data(), options.bytes, cudaMemcpyHostToDevice),
                "cudaMemcpy");
@@ -173,7 +206,7 @@ BenchmarkResult run_pinned(const BenchmarkOptions& options) {
     StreamGuard stream;
 
     const auto t0 = std::chrono::steady_clock::now();
-    read_exact(fd.fd, host.ptr, options.bytes, false);
+    read_region(fd.fd, host.ptr, options, false);
     const auto t1 = std::chrono::steady_clock::now();
     cuda_check(cudaMemcpyAsync(device.ptr, host.ptr, options.bytes, cudaMemcpyHostToDevice,
                                stream.stream), "cudaMemcpyAsync");
@@ -194,7 +227,7 @@ BenchmarkResult run_direct(const BenchmarkOptions& options) {
     StreamGuard stream;
 
     const auto t0 = std::chrono::steady_clock::now();
-    read_exact(fd.fd, host.ptr, options.bytes, true);
+    read_region(fd.fd, host.ptr, options, true);
     const auto t1 = std::chrono::steady_clock::now();
     cuda_check(cudaMemcpyAsync(device.ptr, host.ptr, options.bytes, cudaMemcpyHostToDevice,
                                stream.stream), "cudaMemcpyAsync");

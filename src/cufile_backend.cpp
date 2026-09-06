@@ -90,7 +90,8 @@ BenchmarkResult run_cufile(const BenchmarkOptions& options) {
     DeviceBuffer device(options.bytes);
 
     const auto start = std::chrono::steady_clock::now();
-    const ssize_t n = cuFileRead(handle.handle, device.ptr, options.bytes, 0, 0);
+    const ssize_t n = cuFileRead(handle.handle, device.ptr, options.bytes,
+                                 static_cast<off_t>(options.offset), 0);
     cuda_check(cudaDeviceSynchronize(), "cudaDeviceSynchronize");
     const auto end = std::chrono::steady_clock::now();
 

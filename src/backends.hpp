@@ -9,7 +9,19 @@
 struct BenchmarkOptions {
     std::string path;
     std::size_t bytes = 0;
+    // Storage read granularity. Experiment 04 sweeps this; it is independent
+    // of chunk_bytes, which is the overlap pipeline's buffer size.
+    std::size_t read_chunk = 16ULL * 1024ULL * 1024ULL;
     std::size_t chunk_bytes = 64ULL * 1024ULL * 1024ULL;
+    // Byte offset of the region to read. Iterations advance this so a repeat
+    // run touches new file extents instead of re-reading the page cache.
+    std::size_t offset = 0;
+    // Experiment 05: visit read_chunk-sized blocks in shuffled order. The
+    // destination stays position-correct, so the checksum must not change.
+    bool random_access = false;
+    std::uint64_t seed = 0;
+    // Open with O_DIRECT where the backend supports both modes (overlap).
+    bool direct = false;
 };
 
 struct BenchmarkResult {
