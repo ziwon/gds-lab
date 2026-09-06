@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 #include <string>
 
@@ -15,7 +16,8 @@ std::size_t parse_bytes(std::string value) {
     }
 
     std::size_t multiplier = 1;
-    const char suffix = static_cast<char>(std::toupper(value.back()));
+    const char suffix =
+        static_cast<char>(std::toupper(static_cast<unsigned char>(value.back())));
     if (!std::isdigit(static_cast<unsigned char>(suffix))) {
         value.pop_back();
         switch (suffix) {
@@ -25,7 +27,15 @@ std::size_t parse_bytes(std::string value) {
             default: throw std::invalid_argument("size suffix must be K, M, or G");
         }
     }
-    return static_cast<std::size_t>(std::stoull(value)) * multiplier;
+    if (value.empty()) {
+        throw std::invalid_argument("size needs a number before the suffix");
+    }
+
+    const unsigned long long scalar = std::stoull(value);
+    if (scalar > std::numeric_limits<std::size_t>::max() / multiplier) {
+        throw std::invalid_argument("size overflows size_t: " + value);
+    }
+    return static_cast<std::size_t>(scalar) * multiplier;
 }
 
 void usage(const char* argv0) {
@@ -82,6 +92,8 @@ int main(int argc, char** argv) {
             return 2;
         }
         if (iterations < 1) throw std::invalid_argument("--iterations must be >= 1");
+        if (bytes == 0) throw std::invalid_argument("--bytes must be > 0");
+        if (chunk_bytes == 0) throw std::invalid_argument("--chunk-bytes must be > 0");
 
         std::cout << "cufile_compiled=" << (cufile_compiled() ? "yes" : "no") << '\n';
         if (backend == "cufile") {
